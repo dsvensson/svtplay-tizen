@@ -1,0 +1,73 @@
+html, body {
+    width: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.row
+{
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    border-spacing: 10px;
+}
+
+.column
+{
+    display: table-cell;
+}
+
+.boxes-container {
+    width: 80%;
+    height: 100%;
+    padding-top: 5%;
+    padding-left: 10%;
+}
+
+.boxes-container ul li {
+    padding-bottom: 20%;
+    height: 0;
+    width: 33%;
+    margin: 0;
+    float:left;
+    list-style: none;
+}
+
+.image {
+    display: inline-block;
+    margin: 0;
+    padding: 0;
+    outline: 0;
+}
+
+.image > img {
+    border-radius: 5px;
+    border: 1px solid #aaa;
+    position: relative;
+}
+
+.image:focus > img, .image:hover > img {
+    box-shadow: 0px 0px 15px #222;
+    border: 1px solid #555;
+    border-radius: 5px;
+    -webkit-filter: brightness(140%);
+    transition: all .15s linear;
+}
+
+h2 > span {
+    position: relative;
+    top: -80px;
+    margin-left: 1px;
+    border-right: 1px solid black;
+    border-top: 1px solid black;
+    border-bottom: 1px solid black;
+    color: white;
+    font: bold 32px/45px Helvetica, Sans-Serif;
+    letter-spacing: -1px;
+    background: rgba(0, 0, 0, 0.5);
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 10px;
+    padding-bottom: 6px;
+}
