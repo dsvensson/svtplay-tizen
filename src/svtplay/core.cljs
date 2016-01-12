@@ -6,110 +6,165 @@
             [domina.core :as domina]
             [domina.xpath :as dominax :refer [xpath]]
             [sablono.core :as html :refer-macros [html]]
-            [goog.events :as events])
+            [goog.events :as events]
+            [cuerdas.core :refer [format split]])
   (:import [goog.net XhrIo]
            goog.net.EventType
            [goog.events EventType]))
 
 (enable-console-print!)
 
-(defmulti read om/dispatch)
+(defmulti readf om/dispatch)
 
-(defmethod read :categories
-  [{:keys [state]} key params]
+(defmethod readf :categories
+  [{:keys [state] :as env} key params]
   (let [st @state]
     (if (contains? st key)
       {:value (get st key)}
-      {:categories true})))
+      {:remote true})))
 
-(defn parse-category [node]
-  {:category (domina/attr node :id)
+(defmethod readf :category
+  [{:keys [state] :as env} key params]
+  (let [st @state]
+    (if (contains? st key)
+      {:value (get st key)}
+      {:remote true})))
+
+(defmethod readf :default
+  [{:keys [state] :as env} key params]
+  {:value (-> state deref key)})
+
+(defmethod readf :child
+  [{:keys [parser query ast] :as env} k params]
+  (let [value (parser env query)]
+    (if (every? #(get value (:dispatch-key %1)) (:children ast)) ;; this is a hack :()
+      {:value value}
+      {:remote true})))
+
+(defmulti mutatef om/dispatch)
+
+(defmethod mutatef 'session/set-route
+  [{:keys [state]} _ {:keys [name args]}]
+  {:action (fn []
+             (swap! state assoc :session/route name)
+             (swap! state assoc :session/params args))})
+
+(defn parse-grid-item [node]
+  {:item (domina/attr node :id)
+   :short (last (split (str (domina/attr node :id)) #"\."))
    :url (last (re-find #"[^']+'([^']+)" (domina/attr node :onPlay)))
    :title (domina/text (domina/single-node (dominax/xpath node "title")))
    :image (domina/text (domina/single-node (dominax/xpath node "image")))})
 
-(defn parse-categories [root]
+(defn parse-grid-items [root]
   (let [items (domina/nodes (dominax/xpath root "//sixteenByNinePoster"))]
-    {:categories (map parse-category items)}))
+    (map parse-grid-item items)))
+
+(def resource-mapping
+  {:categories {:url "http://www.svtplay.se/xml/categories.xml"
+                :parser parse-grid-items}
+   :category {:url "http://www.svtplay.se/xml/category/%(section)s/%(view)s.xml"
+              :parser parse-grid-items}})
 
 (defn reconciler-send []
-  (fn [re cb]
-    (let [xhr (XhrIo.)]
-      (events/listen xhr goog.net.EventType.SUCCESS
-                     #(this-as this (cb (parse-categories (.getResponseXml this)))))
-      (.. xhr (setWithCredentials true))
-      (. xhr (send "http://www.svtplay.se/xml/categories.xml")))))
+  (fn [{:keys [remote] :as args} cb]
+    (let [{:keys [dispatch-key params]} (get-in (om/query->ast remote) [:children 0 :children 0]) ;; ugh horrible hack
+          {:keys [url parser]} (get resource-mapping dispatch-key)]
+      (.send XhrIo (format url params)
+             #(this-as this (cb {dispatch-key (parser (.getResponseXml this))}))))))
 
-(defui Category
+(defui Item
   static om/Ident
-  (ident [this {:keys [category]}]
-         [:category category])
+  (ident [this {:keys [item]}]
+         [:item item])
   static om/IQuery
   (query [this]
-         [:id :title :url :image])
+         [:item :short :title :url :image])
   Object
   (render [this]
           (html
-           (let [{:keys [title url image]} (om/props this)]
-             [:li {:className "boxes-item"}
-              [:div {:className "image" :tabIndex -1}
-               [:img {:src image }]
+           (let [{:keys [short title url image]} (om/props this)
+                 {:keys [item-action]} (om/get-computed this)]
+             [:li
+              [:div {:className "image" :tabIndex -1 :onClick #(item-action short)}
+               [:img {:src image}]
                [:h2 [:span title]]]]))))
 
-(def category-ui (om/factory Category {:keyfn :category}))
+(def item-ui (om/factory Item {:keyfn :item}))
 
-(defn update-position [this event]
-  (.log js/console (.-keyCode event) (om/get-state this :x))
-;  (.preventDefault event)
-;  (.stopPropagation event)
-  (case (.-keyCode event)
-    40 (om/update-state! this update-in [:x] inc) ;; down
-    38 (om/update-state! this update-in [:x] dec)  ;; up
-    37 (om/update-state! this update-in [:y] inc) ;; left
-    39 (om/update-state! this update-in [:y] dec))) ;; right
+(defui Category
+  static om/IQueryParams
+  (params [this]
+          {:item (om/get-query Item)
+           :section nil
+           :view nil})
+  static om/IQuery
+  (query [this]
+         '[({:category ?item} {:section ?section :view ?view})])
+  Object
+  (render [this]
+          (html
+           (let [{:keys [category]} (om/props this)]
+             [:div {:className "boxes-container"}
+              [:ul
+               (map (fn [item] (item-ui item)) category)]]))))
 
 (defui Categories
   static om/IQuery
   (query [this]
-         [{:categories (om/get-query Category)}])
+         [{:categories (om/get-query Item)}])
   Object
-  (initLocalState [this] {:pos/x 0
-                          :pos/y 0})
-  (componentWillMount [this]
-                      (let [cb (fn [event] (update-position this event))]
-                        (.addEventListener js/window "keydown" cb)
-                        (om/update-state! this {:keydown-fn cb})))
-  (componentWillUnmount [this]
-                        (let [cb (:keydown-fn (om/get-state this))]
-                          (.removeEventListener js/window "resize" cb)))
   (render [this]
           (html
-           (let [{:keys [categories]} (om/props this)]
+           (let [{:keys [categories]} (om/props this)
+                 {:keys [update-route]} (om/get-computed this)
+                 open-category #(update-route :category {:section %1 :view "alphabetical"})]
              [:div {:className "boxes-container"}
               [:ul
-               (map-indexed (fn [idx category] (category-ui category)) categories)]]))))
+               (map (fn [item] (item-ui (om/computed item {:item-action open-category}))) categories)]]))))
 
-(def categories-ui (om/factory Categories))
+(def route->component
+  {:categories Categories
+   :category Category})
+
+(def route->factory
+  (zipmap (keys route->component)
+          (map om/factory (vals route->component))))
+
+(def route->query
+  (zipmap (keys route->component)
+          (map om/get-query (vals route->component))))
+
+(defui App
+  static om/IQuery
+  (query [this]
+         (let [subquery (route->query :categories)]
+           [:session/route :session/params {:child subquery}]))
+  Object
+  (componentWillUpdate [this next-props next-state]
+                       (let [target (:session/route next-props)
+                             params (:session/params next-props)
+                             child-ast (om/query->ast (route->query target))
+                             parametrized (assoc-in child-ast [:children 0 :params] params)] ;; O_o
+                         (om/set-query! this {:query [:session/route :session/params {:child (om/ast->query parametrized)}]})))
+  (update-route [this target params]
+                (om/transact! this `[(session/set-route {:name ~target :args ~params})]))
+  (render [this]
+          (let [{:keys [session/route child]} (om/props this)]
+            ((route->factory route)
+             (om/computed child
+                          {:update-route (fn [tgt arg] (.update-route this tgt arg))})))))
+
+(def app-ui (om/factory App))
+
+(def app-state (atom {:session/route :categories
+                      :session/params {}}))
 
 (def reconciler
   (om/reconciler
-   {:state {}
-    :parser (om/parser {:read read})
-    :remotes [:categories]
+   {:state app-state
+    :parser (om/parser {:read readf :mutate mutatef})
+    :remotes [:remote]
     :send (reconciler-send)}))
 
-(def code->key
-  "map from a character code (read from events with event.which)
-  to a string representation of it.
-  Only need to add 'special' things here."
-  {13 :enter
-   37 :left
-   38 :up
-   39 :right
-   40 :down})
-
-(.addEventListener js/window "keydown" (fn [event]
-                                         (.stopPropagation event)
-                                         (.log js/console event)))
-
-(om/add-root! reconciler Categories (gdom/getElement "app"))
+(om/add-root! reconciler App (gdom/getElement "app"))
