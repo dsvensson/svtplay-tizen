@@ -34,12 +34,17 @@
   [{:keys [state] :as env} key params]
   {:value (-> state deref key)})
 
+
+(defn recurse-remote
+  [{:keys [parser target query state ast] :as env}]
+  (let [v (parser env query target)]
+    (if (or (empty? v) (nil? target))
+      {:value v}
+      {target (update ast assoc :query v)})))
+
 (defmethod readf :child
-  [{:keys [parser query ast] :as env} k params]
-  (let [value (parser env query)]
-    (if (every? #(get value (:dispatch-key %1)) (:children ast)) ;; this is a hack :()
-      {:value value}
-      {:remote true})))
+  [{:keys [parser query ast target] :as env} k params]
+  (recurse-remote env))
 
 (defmulti mutatef om/dispatch)
 
