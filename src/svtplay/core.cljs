@@ -34,25 +34,20 @@
   [{:keys [state] :as env} key params]
   {:value (-> state deref key)})
 
-
-(defn recurse-remote
-  [{:keys [parser target query state ast] :as env}]
+(defmethod readf :child
+  [{:keys [parser query ast target] :as env} k params]
   (let [v (parser env query target)]
     (if (or (empty? v) (nil? target))
       {:value v}
       {target (update ast assoc :query v)})))
 
-(defmethod readf :child
-  [{:keys [parser query ast target] :as env} k params]
-  (recurse-remote env))
-
 (defmulti mutatef om/dispatch)
 
 (defmethod mutatef 'session/set-route
   [{:keys [state]} _ {:keys [name args]}]
-  {:action (fn []
-             (swap! state assoc :session/route name)
-             (swap! state assoc :session/params args))})
+  {:action #(swap! state assoc
+                   :session/route name
+                   :session/params args)})
 
 (defn parse-grid-item [node]
   {:item (domina/attr node :id)
@@ -149,9 +144,13 @@
   (componentWillUpdate [this next-props next-state]
                        (let [target (:session/route next-props)
                              params (:session/params next-props)
-                             child-ast (om/query->ast (route->query target))
-                             parametrized (assoc-in child-ast [:children 0 :params] params)] ;; O_o
-                         (om/set-query! this {:query [:session/route :session/params {:child (om/ast->query parametrized)}]})))
+                             orig-query (route->query target)
+                             child-ast (om/query->ast orig-query)
+                             parametrized (om/ast->query (assoc-in child-ast [:children 0 :params] params))
+                             metadatad (with-meta parametrized (meta orig-query))] ;; O_o
+                         (om/set-query! this {:query [:session/route
+                                                      :session/params
+                                                      {:child metadatad}]})))
   (update-route [this target params]
                 (om/transact! this `[(session/set-route {:name ~target :args ~params})]))
   (render [this]
