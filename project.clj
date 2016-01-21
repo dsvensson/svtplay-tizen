@@ -11,12 +11,15 @@
   :plugins [[lein-ancient "0.6.8"]
             [lein-cljsbuild "1.1.2"]
             [lein-figwheel "0.5.0-3"]
-            [lein-garden "0.2.6"]
+            ;[lein-garden "0.2.6"]
             [lein-pdo "0.1.1"]]
   :resource-paths ["resources"]
   :cljsbuild {:builds
               [{:id "dev"
-                :figwheel true
+                :figwheel
+                {:websocket-url "ws://172.16.10.127:3449/figwheel-ws"
+                 :websocket-host "172.16.10.127"
+                 :on-jsload "svtplay.core/init"}
                 :source-paths ["src/svtplay"]
                 :compiler
                 {:main svtplay.core
@@ -24,6 +27,7 @@
                  :output-to "resources/public/js/main.js"
                  :output-dir "resources/public/js"
                  :parallel-build true
+                 :static-fns true
                  :verbose true}}
                {:id "prod"
                 :source-paths ["src/svtplay"]
@@ -34,17 +38,20 @@
                  :parallel-build true
                  :optimizations :advanced
                  :verbose false}}]}
-  :garden {:builds
-           [{:id "design"
-             :source-paths ["src" "svtplay"]
-             :stylesheet svtplay.styles/index
-             :compiler {:output-to "resources/public/css/svtplay.css"
-                        :pretty-print? true}}
-            {:id "prod"
-             :source-paths ["src" "svtplay"]
-             :stylesheet svtplay.styles/index
-             :compiler {:output-to "resources/public/css/svtplay.min.css"
-                        :pretty-print? false}}]}
-  :figwheel {:css-dirs ["resources/public/css"]}
-  :aliases {"dev" ["pdo" "garden" "auto" "design," "figwheel"]
-            "release" ["pdo" "prod"]})
+  ;; :garden {:builds
+  ;;          [{:id "design"
+  ;;            :source-paths ["src" "svtplay"]
+  ;;            :stylesheet svtplay.styles/index
+  ;;            :compiler {:output-to "resources/public/css/svtplay.css"
+  ;;                       :pretty-print? true}}
+  ;;           {:id "prod"
+  ;;            :source-paths ["src" "svtplay"]
+  ;;            :stylesheet svtplay.styles/index
+  ;;            :compiler {:output-to "resources/public/css/svtplay.min.css"
+  ;;                       :pretty-print? false}}]}
+  :figwheel {
+             :css-dirs ["resources/public/css"]
+             :server-port 3449
+             :server-ip   "172.16.10.127"})
+;  :aliases {"dev" ["pdo" "garden" "auto" "design," "figwheel"]
+;            "release" ["pdo" "prod"]})

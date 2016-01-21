@@ -109,11 +109,10 @@
   (fn [{:keys [remote] :as args} cb]
     (let [{:keys [dispatch-key params]} (get-in (om/query->ast remote) [:children 0 :children 0]) ;; ugh horrible hack
           {:keys [url parser]} (get resource-mapping dispatch-key)]
-      (.log js/console "got params: " (str params "  " (format url  params)))
       (.send XhrIo (format url params)
              #(this-as this (cb {dispatch-key (parser (.getResponseXml this))}))))))
 
-(defui Episode
+(defui ^:once Episode
   static om/Ident
   (ident [this {:keys [episode-id]}]
          [:episode-id episode-id])
@@ -123,16 +122,16 @@
   Object
   (render [this]
           (html
-           (let [{:keys [episode-id title image]} (om/props this)
+           (let [{:keys [episode-id title air-time image]} (om/props this)
                  {:keys [select-episode]} (om/get-computed this)]
-             [:div {:onClick #(select-episode episode-id) :className "row" :style {:height "100%"} }
-              [:div {:className "col-lg-4"}
-               [:img {:className "img-responsive" :src (image :small) :style {:border "1px solid blue"}}]]
-              [:div {:classname "col-lg-8"}
-               [:h3  title]]]))))
+             [:div {:onClick #(select-episode episode-id) :className "row"}
+              [:img {:className "col-lg-4 img-responsive" :src (image :small)}]
+              [:div {:className "details"}
+               [:p {:className "title"} title]
+               [:p {:className "airtime"} air-time]]]))))
 (def episode-ui (om/factory Episode {:keyfn :episode-id}))
 
-(defui Programme
+(defui ^:once Programme
   static om/Ident
   (ident [this {:keys [programmeid]}]
          [:programmeid programmeid])
@@ -158,28 +157,28 @@
            (let [{:keys [programme]} (om/props this)
                  {:keys [episodes summary]} programme
                  {:keys [title summary image air-time duration availability] :as active} (.selected-episode this episodes)]
-             [:div {:className "row"}
+             [:div {:className "row programme"}
               (when active
-                [:div {:className "col-lg-8 col-md-8"}
+                [:div {:className "col-lg-8 description"}
                  [:div {:className "row"}
-                  [:div {:className "col-lg-9"}
-                   [:img {:className "img-responsive" :src (image :extralarge)}]]
+                  [:div {:className "col-lg-9 poster-holder"}
+                   [:img {:className "img-responsive poster" :src (image :extralarge)}]]
                   [:div {:className "col-lg-3"}
-                   [:div {:className "row"}
-                    [:div [:h3 duration]]
-                    [:div [:h3 air-time]]
-                    [:div [:h3 availability]]]]]
+                   [:div {:className "row dates" :style {:vertical-align "bottom"}}
+                    [:div [:p duration]]
+                    [:div [:p air-time]]
+                    [:div [:p availability]]]]]
                  [:div {:className "row"}
                   [:div {:className  "col-lg-12"}
-                   [:h2 title]
-                   [:h3 summary]]]])
-              [:div {:className "col-lg-4 col-md-4"}
-               [:ul {:style {:list-style "none"}}
+                   [:p {:className "title"} title]
+                   [:p {:className "summary"} summary]]]])
+              [:div {:className "col-lg-4 col-md-4 episodes-list"}
+               [:ul
                 (for [episode episodes]
                   [:li (episode-ui (om/computed episode {:select-episode #(.select-episode this %1)}))])]
                ]]))))
 
-(defui Item
+(defui ^:once Item
   static om/Ident
   (ident [this {:keys [item-id]}]
          [:item item-id])
@@ -191,14 +190,13 @@
           (html
            (let [{:keys [short title url image]} (om/props this)
                  {:keys [item-action]} (om/get-computed this)]
-             [:li
-              [:div {:className "image" :tabIndex -1 :onClick #(item-action short)}
-               [:img {:src image}]
-               [:h2 [:span title]]]]))))
+             [:div {:className "image col-lg-4" :tabIndex -1 :onClick #(item-action short)}
+              [:img {:src image}]
+              [:h2 [:span title]]]))))
 
 (def item-ui (om/factory Item {:keyfn :item}))
 
-(defui Category
+(defui ^:once Category
   static om/IQueryParams
   (params [this]
           {:item (om/get-query Item)
@@ -213,11 +211,14 @@
            (let [{:keys [category]} (om/props this)
                  {:keys [update-route]} (om/get-computed this)
                  open-item #(update-route :programme {:programmeid %1})]
-             [:div {:className "boxes-container"}
-              [:ul
-               (map (fn [item] (item-ui (om/computed item {:item-action open-item}))) category)]]))))
+             [:div
+              (for [entries (partition 3 3 [:padding] category)]
+                [:div {:className "row"}
+                 (map (fn [item]
+                        (if-not (= item :padding)
+                          (item-ui (om/computed item {:item-action open-item})))) entries)])]))))
 
-(defui Categories
+(defui ^:once Categories
   static om/IQuery
   (query [this]
          [{:categories (om/get-query Item)}])
@@ -227,9 +228,12 @@
            (let [{:keys [categories]} (om/props this)
                  {:keys [update-route]} (om/get-computed this)
                  open-category #(update-route :category {:section %1 :view "alphabetical"})]
-             [:div {:className "boxes-container"}
-              [:ul
-               (map (fn [item] (item-ui (om/computed item {:item-action open-category}))) categories)]]))))
+             [:div
+              (for [entries (partition 3 3 [:padding] categories)]
+               [:div {:className "row"}
+                (map (fn [item]
+                       (if-not (= item :padding)
+                         (item-ui (om/computed item {:item-action open-category})))) entries)])]))))
 
 (def route->component
   {:categories Categories
@@ -244,19 +248,23 @@
   (zipmap (keys route->component)
           (map om/get-query (vals route->component))))
 
-(defui App
+(defui ^:once App
   static om/IQuery
   (query [this]
          (let [subquery (route->query :categories)]
            [:session/route :session/params {:child subquery}]))
   Object
   (componentWillUpdate [this next-props next-state]
+                       ;; horror to be cleaned up, but need to hack in params, and
+                       ;; re-attach the original metadata to the updated query for
+                       ;; the components to render correctly.
                        (let [target (:session/route next-props)
                              params (:session/params next-props)
                              orig-query (route->query target)
                              child-ast (om/query->ast orig-query)
                              parametrized (om/ast->query (assoc-in child-ast [:children 0 :params] params))
-                             metadatad (with-meta parametrized (meta orig-query))] ;; O_o
+                             metadatad (with-meta parametrized (meta orig-query))]
+                         (.log js/console "orig:" (str orig-query) " ast: " (str child-ast))
                          (om/set-query! this {:query [:session/route
                                                       :session/params
                                                       {:child metadatad}]})))
@@ -264,16 +272,16 @@
                 (om/transact! this `[(session/set-route {:name ~target :args ~params})]))
   (render [this]
           (let [{:keys [session/route child]} (om/props this)]
-            ((route->factory route)
-             (om/computed child
-                          {:update-route (fn [tgt arg] (.update-route this tgt arg))})))))
+            (html [:div
+                   [:div {:onClick #(.update-route this :categories {})} "foo"]
+                   ((route->factory route)
+                    (om/computed child
+                                 {:update-route (fn [tgt arg] (.update-route this tgt arg))}))]))))
 
-(def app-ui (om/factory App))
+(defonce app-state (atom {:session/route :categories
+                          :session/params {}}))
 
-(def app-state (atom {:session/route :categories
-                      :session/params {}}))
-
-(def reconciler
+(defonce reconciler
   (om/reconciler
    {:state app-state
     :parser (om/parser {:read readf :mutate mutatef})
@@ -281,3 +289,13 @@
     :send (reconciler-send)}))
 
 (om/add-root! reconciler App (gdom/getElement "app"))
+
+(defn init []
+  ;; workaround for #582
+  (if-let [root (om/app-root reconciler)]
+    (do
+      (js/Object.setPrototypeOf root (.. @app-state -__proto__))
+      (om/force-root-render! reconciler))
+    (let [target (gdom/getElement "app")]
+      (om/add-root! reconciler App target)
+      (reset! app-state App))))
