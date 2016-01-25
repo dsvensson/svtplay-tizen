@@ -10,7 +10,7 @@ html, body {
 }
 
 #app {
-    width: 85%;
+    width: 90%;
     text-align: left;
 }
 
@@ -19,20 +19,14 @@ html, body {
     margin: 0;
     padding: 0;
     outline: 0;
-    opacity: 0;
-    -webkit-animation-name: keyframes-fade-in;
-    -webkit-animation-duration: 2s;
-    -webkit-animation-iteration-count: 1;
-    -webkit-animation-fill-mode: forwards;
-    -webkit-animation-timing-function: ease-out;
 }
 
 .image > img {
     border-radius: 5px;
     border: 1px solid #aaa;
     position: relative;
-    width: 650px;
-    height: 368px;
+    width: 480px;
+    height: 268px;
 }
 
 .image:focus > img, .image:hover > img {
@@ -44,7 +38,9 @@ html, body {
 }
 
 h2 > span {
+    float: left;
     position: relative;
+    max-width: 480px;
     top: -80px;
     margin-left: 1px;
     border-right: 1px solid black;
@@ -54,10 +50,13 @@ h2 > span {
     font: bold 32px/45px Helvetica, Sans-Serif;
     letter-spacing: -1px;
     background: rgba(0, 0, 0, 0.5);
-    padding-left: 10px;
-    padding-right: 10px;
-    padding-top: 10px;
-    padding-bottom: 6px;
+    padding-left: 0.3em;
+    padding-right: 0.3em;
+    padding-top: 0.2em;
+    padding-bottom: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 @-webkit-keyframes keyframes-fade-in {
@@ -74,9 +73,11 @@ h2 > span {
     border: 2px solid #ddd;
     border-radius: 8px;
     margin: 10px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    display: -webkit-flex;
+    -webkit-flex-flow: row nowrap;
+    -webkit-box-sizing: border-box;
+    -webkit-justify-content: center;
+    -webkit-align-items: center;
 }
 
 .episodes-list .row:hover {
@@ -105,6 +106,13 @@ h2 > span {
     font-weight: bold;
     margin: 0;
     width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.episodes-list .row .details .title {
+    font-size: 24px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

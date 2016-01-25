@@ -23,7 +23,7 @@
                 :source-paths ["src/svtplay"]
                 :compiler
                 {:main svtplay.core
-                 :asset-path "js"
+                 :asset-path "http://172.16.10.127:3449/js"
                  :output-to "resources/public/js/main.js"
                  :output-dir "resources/public/js"
                  :parallel-build true

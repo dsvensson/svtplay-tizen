@@ -26,11 +26,18 @@
 (defmethod readf :category
   [{:keys [state] :as env} key params]
   (let [st @state]
-    (if (contains? st key)
-      {:value (get st key)}
+    (if-let [value (get-in st [key (:section params) (:view params)])]
+      {:value value}
       {:remote true})))
 
 (defmethod readf :programme
+  [{:keys [state] :as env} key params]
+  (let [st @state]
+    (if-let [value (get-in st [key (:programmeid params)])]
+      {:value value}
+      {:remote true})))
+
+(defmethod readf :video
   [{:keys [state] :as env} key params]
   (let [st @state]
     (if (contains? st key)
@@ -95,22 +102,50 @@
      :subtitle subtitle
      :summary #(.log js/console "fooo")
      :image ""
-     :episodes episodes}))
+     :episodes (reverse episodes)}))
+
+(defn parse-video [root]
+  {:media-url (text-at-xpath root "//mediaURL")})
 
 (def resource-mapping
   {:categories {:url "http://www.svtplay.se/xml/categories.xml"
-                :parser parse-grid-items}
+                :parser #(parse-grid-items %1)}
    :category {:url "http://www.svtplay.se/xml/category/%(section)s/%(view)s.xml"
-              :parser parse-grid-items}
+              :parser (fn [xml params] {(:section params) {(:view params) (parse-grid-items xml)}})}
    :programme {:url "http://www.svtplay.se/xml/title/%(programmeid)s.xml"
-               :parser parse-programme}})
+               :parser (fn [xml params] {(:programmeid params) (parse-programme xml)})}
+   :video {:url "http://www.svtplay.se/xml/player/%(episodeid)s.xml?isClip=false"
+           :parser parse-video}})
 
 (defn reconciler-send []
   (fn [{:keys [remote] :as args} cb]
     (let [{:keys [dispatch-key params]} (get-in (om/query->ast remote) [:children 0 :children 0]) ;; ugh horrible hack
           {:keys [url parser]} (get resource-mapping dispatch-key)]
       (.send XhrIo (format url params)
-             #(this-as this (cb {dispatch-key (parser (.getResponseXml this))}))))))
+             #(this-as this (cb {dispatch-key (parser (.getResponseXml this) params)}))))))
+
+(defui ^:once Video
+  static om/IQueryParams
+  (params [this]
+          {:episodeid nil})
+  static om/IQuery
+  (query [this]
+         `[({:video [:media-url]} {:episodeid ?episodeid})])
+  Object
+  (componentWillUpdate [this next-props next-state]
+                       (if-let [media-url (get-in next-props [:video :media-url])]
+                         (let [elem (gdom/getElement "av-player")]
+                           (.. js/webapis -avplay -open media-url)
+                           (.. js/webapis -avplay (prepare))
+                           (.. js/webapis -avplay (setDisplayRect
+                                                (.-offsetLeft elem)
+                                                (.-offsetTop elem)
+                                                (.-offsetWidth elem)
+                                                (.-offsetHeight elem)))
+                           (.. js/webapis -avplay (play)))))
+  (render [this]
+          (html [:object {:id "av-player"
+                          :type "application/avplayer"}])))
 
 (defui ^:once Episode
   static om/Ident
@@ -127,8 +162,8 @@
              [:div {:onClick #(select-episode episode-id) :className "row"}
               [:img {:className "col-lg-4 img-responsive" :src (image :small)}]
               [:div {:className "details"}
-               [:p {:className "title"} title]
-               [:p {:className "airtime"} air-time]]]))))
+               [:div {:className "title"} title]
+               [:div {:className "airtime"} air-time]]]))))
 (def episode-ui (om/factory Episode {:keyfn :episode-id}))
 
 (defui ^:once Programme
@@ -145,6 +180,9 @@
   Object
   (initLocalState [this]
                   {:selected nil})
+  (componentWillMount [this]
+                      (let [{:keys [programmeid]} (:params (om/get-computed this))]
+                        (om/update-query! this #(update %1 :params conj {:programmeid programmeid}))))
   (select-episode [this episode-id]
                   (om/set-state! this {:selected episode-id}))
   (selected-episode [this episodes]
@@ -156,13 +194,16 @@
           (html
            (let [{:keys [programme]} (om/props this)
                  {:keys [episodes summary]} programme
-                 {:keys [title summary image air-time duration availability] :as active} (.selected-episode this episodes)]
+                 {:keys [episode-id title summary image air-time duration availability] :as active} (.selected-episode this episodes)
+                 {:keys [update-route]} (om/get-computed this)]
              [:div {:className "row programme"}
               (when active
                 [:div {:className "col-lg-8 description"}
                  [:div {:className "row"}
                   [:div {:className "col-lg-9 poster-holder"}
-                   [:img {:className "img-responsive poster" :src (image :extralarge)}]]
+                   [:img {:className "img-responsive poster"
+                          :src (image :extralarge)
+                          :onClick #(update-route :video {:episodeid episode-id})}]]
                   [:div {:className "col-lg-3"}
                    [:div {:className "row dates" :style {:vertical-align "bottom"}}
                     [:div [:p duration]]
@@ -172,19 +213,18 @@
                   [:div {:className  "col-lg-12"}
                    [:p {:className "title"} title]
                    [:p {:className "summary"} summary]]]])
-              [:div {:className "col-lg-4 col-md-4 episodes-list"}
-               [:ul
-                (for [episode episodes]
-                  [:li (episode-ui (om/computed episode {:select-episode #(.select-episode this %1)}))])]
-               ]]))))
+              [:div {:className "col-lg-4 episodes-list"}
+               (for [episode episodes]
+                 (episode-ui (om/computed episode {:select-episode #(.select-episode this %1)})))]
+               ]))))
 
 (defui ^:once Item
   static om/Ident
-  (ident [this {:keys [item-id]}]
-         [:item item-id])
+  (ident [this {:keys [item]}]
+         [:item item])
   static om/IQuery
   (query [this]
-         [:item :short :title :url :image])
+         [:short :title :url :image])
   Object
   (render [this]
           (html
@@ -206,6 +246,9 @@
   (query [this]
          '[({:category ?item} {:section ?section :view ?view})])
   Object
+  (componentWillMount [this]
+                      (let [{:keys [section view]} (:params (om/get-computed this))]
+                        (om/update-query! this #(update %1 :params conj {:section section :view view}))))
   (render [this]
           (html
            (let [{:keys [category]} (om/props this)
@@ -238,7 +281,8 @@
 (def route->component
   {:categories Categories
    :category Category
-   :programme Programme})
+   :programme Programme
+   :video Video})
 
 (def route->factory
   (zipmap (keys route->component)
@@ -258,25 +302,23 @@
                        ;; horror to be cleaned up, but need to hack in params, and
                        ;; re-attach the original metadata to the updated query for
                        ;; the components to render correctly.
-                       (let [target (:session/route next-props)
+                       (let [target (route->query (:session/route next-props))
                              params (:session/params next-props)
-                             orig-query (route->query target)
-                             child-ast (om/query->ast orig-query)
-                             parametrized (om/ast->query (assoc-in child-ast [:children 0 :params] params))
-                             metadatad (with-meta parametrized (meta orig-query))]
-                         (.log js/console "orig:" (str orig-query) " ast: " (str child-ast))
+                             child-ast (om/query->ast target)
+                             parametrized (om/ast->query (assoc-in child-ast [:children 0 :params] params))]
                          (om/set-query! this {:query [:session/route
                                                       :session/params
-                                                      {:child metadatad}]})))
+                                                      {:child (with-meta parametrized (meta target))}]})))
   (update-route [this target params]
                 (om/transact! this `[(session/set-route {:name ~target :args ~params})]))
   (render [this]
-          (let [{:keys [session/route child]} (om/props this)]
+          (let [{:keys [session/route session/params child]} (om/props this)]
             (html [:div
-                   [:div {:onClick #(.update-route this :categories {})} "foo"]
+                   [:div {:onClick #(.update-route this :categories)} "back"]
                    ((route->factory route)
                     (om/computed child
-                                 {:update-route (fn [tgt arg] (.update-route this tgt arg))}))]))))
+                                 {:update-route (fn [tgt arg] (.update-route this tgt arg))
+                                  :params params}))]))))
 
 (defonce app-state (atom {:session/route :categories
                           :session/params {}}))
